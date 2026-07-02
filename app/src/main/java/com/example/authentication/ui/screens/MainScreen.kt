@@ -74,6 +74,7 @@ fun MainScreen(
                 .padding(innerPadding)
         ) {
             // ── Empty State ──────────────────────────────────────
+            // for no added accounts
             AnimatedVisibility(
                 visible = accounts.isEmpty(),
                 enter = fadeIn(),
@@ -108,6 +109,7 @@ fun MainScreen(
             }
 
             // ── Account List ─────────────────────────────────────
+            //for available accounts
             AnimatedVisibility(
                 visible = accounts.isNotEmpty(),
                 enter = fadeIn(),

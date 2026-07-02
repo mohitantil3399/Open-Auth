@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
+
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
 
 /**
  * A premium TOTP card that shows:
- * - Issuer avatar (first letter, coloured by hash of issuer name)
+ * - Issuer avatar (first letter, colored by hash of issuer name)
  * - Issuer label + account name
  * - 6-digit code formatted as "123 456"
  * - Animated circular countdown progress indicator
@@ -50,7 +50,7 @@ fun TotpAccountCard(
     onDeleteClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val clipboard = LocalClipboard.current
+    val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
 
@@ -84,7 +84,7 @@ fun TotpAccountCard(
         label = "progressAnim"
     )
 
-    // Deterministic colour from issuer string hash (stays consistent across recompositions)
+    // Deterministic color from issuer string hash (stays consistent across recompositions)
     val avatarColor = remember(uiState.account.issuer) {
         val hue = (uiState.account.issuer.hashCode().absoluteValue % 360).toFloat()
         Color.hsl(hue, 0.55f, 0.45f)
