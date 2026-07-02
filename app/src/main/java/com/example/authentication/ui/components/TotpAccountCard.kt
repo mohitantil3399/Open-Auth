@@ -21,8 +21,12 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.authentication.viewmodel.AccountUiState
@@ -47,6 +51,9 @@ fun TotpAccountCard(
 ) {
     val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
+
+    // Controls whether the delete-confirmation dialog is visible
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     // < 5 seconds left in the 30-second window → warn user
     val isExpiringSoon = progress < (5f / 30f)
@@ -88,6 +95,67 @@ fun TotpAccountCard(
         append(uiState.currentCode.takeLast(3))
     }
 
+    // ── Delete Confirmation Dialog ───────────────────────────────
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = {
+                Text(
+                    text = "WARNING",
+                    color = Color.Red,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                )
+            },
+            text = {
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append("Deleting this account only removes the code generator from your device.")
+                        }
+                        append(" Two-factor authentication (2FA) will remain active on your ")
+                        append(uiState.account.issuer)
+                        append(" account. If you proceed without disabling 2FA first, ")
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color.Red)) {
+                            append("you may permanently lose access to your account.")
+                        }
+                        append("\n\n")
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append("Before deleting, follow these steps:\n\n")
+                        }
+                        append("1. Log in to your ")
+                        append(uiState.account.issuer)
+                        append(" account while you still have access to your 2FA codes.\n\n")
+                        append("2. Navigate to your account's Security or Privacy settings.\n\n")
+                        append("3. Find the Two-Factor Authentication (2FA) section and disable it, or switch to a different 2FA method (e.g., SMS).\n\n")
+                        append("4. Confirm that 2FA has been fully removed or updated.\n\n")
+                        append("5. Only then come back here and delete this entry.")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeleteClicked()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = Color.Red
+                    )
+                ) {
+                    Text("Delete Anyway", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Card(
         onClick = {
             clipboardManager.setText(AnnotatedString(uiState.currentCode))
@@ -100,7 +168,7 @@ fun TotpAccountCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Row(
             modifier = Modifier
@@ -173,7 +241,7 @@ fun TotpAccountCard(
                 }
 
                 IconButton(
-                    onClick = onDeleteClicked,
+                    onClick = { showDeleteDialog = true },
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
