@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.authentication.viewmodel.AccountUiState
 import kotlin.math.absoluteValue
+import kotlinx.coroutines.launch
 
 /**
  * A premium TOTP card that shows:
@@ -49,8 +50,9 @@ fun TotpAccountCard(
     onDeleteClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
 
     // Controls whether the delete-confirmation dialog is visible
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -158,7 +160,7 @@ fun TotpAccountCard(
 
     Card(
         onClick = {
-            clipboardManager.setText(AnnotatedString(uiState.currentCode))
+            scope.launch { clipboard.setText(AnnotatedString(uiState.currentCode)) }
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         },
         modifier = modifier
