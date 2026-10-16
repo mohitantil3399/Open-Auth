@@ -28,7 +28,7 @@ fun MainScreen(
     onAddAccountClick: () -> Unit
 ) {
     val accounts by viewModel.liveAccounts.collectAsStateWithLifecycle()
-    val progress by viewModel.remainingProgress.collectAsStateWithLifecycle()
+    val timerState by viewModel.timerState.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -74,7 +74,6 @@ fun MainScreen(
                 .padding(innerPadding)
         ) {
             // ── Empty State ──────────────────────────────────────
-            // for no added accounts
             AnimatedVisibility(
                 visible = accounts.isEmpty(),
                 enter = fadeIn(),
@@ -109,7 +108,6 @@ fun MainScreen(
             }
 
             // ── Account List ─────────────────────────────────────
-            //for available accounts
             AnimatedVisibility(
                 visible = accounts.isNotEmpty(),
                 enter = fadeIn(),
@@ -128,7 +126,9 @@ fun MainScreen(
                     ) { uiState ->
                         TotpAccountCard(
                             uiState = uiState,
-                            progress = progress,
+                            progress = timerState.progress,
+                            secondsRemaining = timerState.secondsRemaining,
+                            isExpiringSoon = timerState.isExpiringSoon,
                             onDeleteClicked = { viewModel.deleteAccount(uiState.account) }
                         )
                     }

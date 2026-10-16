@@ -6,10 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.example.authentication.data.AccountRepository
 import com.example.authentication.data.OtpAccount
 import com.example.authentication.engine.TotpEngine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -20,73 +25,111 @@ data class AccountUiState(
     val currentCode: String
 )
 
+data class TimerUiState(
+    val progress: Float = 1.0f,
+    val secondsRemaining: Int = 30,
+    val isExpiringSoon: Boolean = false
+)
+
 class AuthViewModel(private val repository: AccountRepository) : ViewModel() {
 
     // ──────────────────────────────────────────────────────
-    // Master Clock — MutableStateFlow guarantees every
-    // subscriber always has the latest value immediately,
-    // with no cold-start race or stale-replay issues.
+    // Wall clock tick flow:
+    // Emits timestamp continuously (every 50ms) to update progress
+    // and seconds remaining without drift.
     // ──────────────────────────────────────────────────────
-    private val _tick = MutableStateFlow(System.currentTimeMillis())
+    private val _clockMillis = MutableStateFlow(System.currentTimeMillis())
+    val clockMillis: StateFlow<Long> = _clockMillis.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        startClock()
+    }
+
+    private fun startClock() {
+        viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
-                _tick.value = System.currentTimeMillis()
-                delay(100L)
+                _clockMillis.value = System.currentTimeMillis()
+                delay(50L)
             }
         }
     }
 
     // ──────────────────────────────────────────────────────
-    // Progress: 1.0f (start of window) → 0.0f (end of window)
-    //
-    // Uses millisecond precision for smooth sub-second updates
-    // instead of truncating to whole seconds.
+    // Timer state:
+    // - progress: 1.0f (start of window) -> 0.0f (end of window)
+    // - secondsRemaining: 30 down to 1
+    // - isExpiringSoon: true when secondsRemaining <= 5
     // ──────────────────────────────────────────────────────
-    val remainingProgress = _tick
+    val timerState: StateFlow<TimerUiState> = _clockMillis
         .map { millis ->
-            val millisIntoWindow = millis % 30_000L
-            1f - (millisIntoWindow / 30_000f)
+            val progress = TotpEngine.progressRemaining(millis)
+            val seconds = TotpEngine.secondsRemaining(millis)
+            TimerUiState(
+                progress = progress,
+                secondsRemaining = seconds,
+                isExpiringSoon = seconds <= 5
+            )
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000L),
             initialValue = run {
-                val millis = System.currentTimeMillis()
-                val millisIntoWindow = millis % 30_000L
-                1f - (millisIntoWindow / 30_000f)
+                val now = System.currentTimeMillis()
+                val progress = TotpEngine.progressRemaining(now)
+                val seconds = TotpEngine.secondsRemaining(now)
+                TimerUiState(
+                    progress = progress,
+                    secondsRemaining = seconds,
+                    isExpiringSoon = seconds <= 5
+                )
             }
         )
 
     // ──────────────────────────────────────────────────────
-    // Live accounts: DB stream × tick → fresh codes
+    // Remaining progress flow (1.0f -> 0.0f)
     // ──────────────────────────────────────────────────────
-    val liveAccounts = combine(
+    val remainingProgress: StateFlow<Float> = timerState
+        .map { it.progress }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = TotpEngine.progressRemaining(System.currentTimeMillis())
+        )
+
+    // ──────────────────────────────────────────────────────
+    // Live accounts:
+    // Recomputed ONLY when database accounts change OR
+    // when the 30-second window step changes (at :00 and :30 boundaries).
+    // ──────────────────────────────────────────────────────
+    val liveAccounts: StateFlow<List<AccountUiState>> = combine(
         repository.getAllAccountsStream(),
-        _tick
-    ) { accounts, currentTime ->
+        _clockMillis.map { it / 1000L / 30L }.distinctUntilChanged()
+    ) { accounts, _ ->
+        val currentTime = System.currentTimeMillis()
         accounts.map { acc ->
             AccountUiState(
                 account = acc,
                 currentCode = TotpEngine.generateCode(acc.secretKey, currentTime)
             )
         }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000L),
-        initialValue = emptyList()
-    )
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = emptyList()
+        )
 
     // ──────────────────────────────────────────────────────
     // Actions
     // ──────────────────────────────────────────────────────
     fun addAccount(account: OtpAccount) {
-        viewModelScope.launch { repository.insert(account) }
+        viewModelScope.launch(Dispatchers.IO) { repository.insert(account) }
     }
 
     fun deleteAccount(account: OtpAccount) {
-        viewModelScope.launch { repository.delete(account) }
+        viewModelScope.launch(Dispatchers.IO) { repository.delete(account) }
     }
 }
 

@@ -8,8 +8,8 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
-import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
@@ -26,14 +26,14 @@ import com.example.authentication.viewmodel.AuthViewModelFactory
  *
  * Security hardening applied here:
  *  1. FLAG_SECURE  — blocks screenshots and blacks out the Recents thumbnail.
- *  2. BiometricPrompt — gates the UI on every onResume() using fingerprint / face / PIN.
+ *  2. BiometricPrompt — gates the UI on launch using fingerprint / face / PIN.
  *
  * Note: FragmentActivity (not ComponentActivity) is required by the biometric library.
  */
 class MainActivity : FragmentActivity() {
 
     private lateinit var viewModel: AuthViewModel
-    private var isAuthenticated = false
+    private val isAuthenticated = mutableStateOf(false)
 
     // ─────────────────────────────────────────────────────────────────
     // Biometric prompt setup
@@ -65,31 +65,24 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         setContent {
             AuthenticationTheme {
-                val navController = rememberNavController()
-                var authState by remember { mutableStateOf(false) }
-
-                // Expose auth state so the nav graph can hide until authenticated
-                LaunchedEffect(isAuthenticated) {
-                    authState = isAuthenticated
-                }
-
-                if (authState) {
+                val authed by isAuthenticated
+                if (authed) {
+                    val navController = rememberNavController()
                     OpenAuthNavGraph(
                         navController = navController,
                         viewModel = viewModel
                     )
                 }
-                // While not authenticated the screen is intentionally blank
-                // (the biometric prompt covers it on every resume)
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // Always re-challenge on resume — prevents leaving the app open
-        // and returning to unlocked codes from the Recent Apps screen.
-        showBiometricPrompt()
+        // If not yet authenticated, challenge with biometrics
+        if (!isAuthenticated.value) {
+            showBiometricPrompt()
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -100,8 +93,8 @@ class MainActivity : FragmentActivity() {
         val canAuthenticate = biometricManager.canAuthenticate(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)
 
         if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
-            // Device has no lock screen at all — still allow access but warn in logs.
-            isAuthenticated = true
+            // Device has no lock screen / biometrics — allow access
+            isAuthenticated.value = true
             return
         }
 
@@ -111,17 +104,7 @@ class MainActivity : FragmentActivity() {
             executor,
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    isAuthenticated = true
-                    // Trigger recomposition by re-setting content flag
-                    setContent {
-                        AuthenticationTheme {
-                            val navController = rememberNavController()
-                            OpenAuthNavGraph(
-                                navController = navController,
-                                viewModel = viewModel
-                            )
-                        }
-                    }
+                    isAuthenticated.value = true
                 }
 
                 override fun onAuthenticationFailed() {
@@ -133,7 +116,7 @@ class MainActivity : FragmentActivity() {
                     if (errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
                         errorCode != BiometricPrompt.ERROR_USER_CANCELED
                     ) {
-                        isAuthenticated = false
+                        isAuthenticated.value = false
                     }
                     finish()
                 }

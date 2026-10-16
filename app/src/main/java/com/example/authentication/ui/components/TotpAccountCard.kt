@@ -1,15 +1,13 @@
 package com.example.authentication.ui.components
 
+import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -31,41 +30,41 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.authentication.viewmodel.AccountUiState
 import kotlin.math.absoluteValue
-import kotlinx.coroutines.launch
 
 /**
  * A premium TOTP card that shows:
  * - Issuer avatar (first letter, colored by hash of issuer name)
  * - Issuer label + account name
  * - 6-digit code formatted as "123 456"
- * - Animated circular countdown progress indicator
- * - Tap to copy to clipboard (with haptic feedback)
- * - Swipe-to-delete button
+ * - Animated circular countdown progress indicator synced to real-time clock (no drift)
+ * - Expiry color: turns red when < 5 seconds remaining
+ * - Tap to copy to clipboard with haptic feedback and confirmation toast
+ * - Swipe-to-delete / delete button with confirmation dialog
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TotpAccountCard(
     uiState: AccountUiState,
     progress: Float,
+    secondsRemaining: Int,
+    isExpiringSoon: Boolean,
     onDeleteClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
 
     // Controls whether the delete-confirmation dialog is visible
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    // < 5 seconds left in the 30-second window → warn user
-    val isExpiringSoon = progress < (5f / 30f)
-
+    // Smooth color animation when transitioning between normal and expiring state (< 5s)
     val codeColor by animateColorAsState(
         targetValue = if (isExpiringSoon)
             MaterialTheme.colorScheme.error
         else
             MaterialTheme.colorScheme.primary,
-        animationSpec = tween(durationMillis = 400),
+        animationSpec = tween(durationMillis = 300),
         label = "codeColor"
     )
 
@@ -74,14 +73,8 @@ fun TotpAccountCard(
             MaterialTheme.colorScheme.error
         else
             MaterialTheme.colorScheme.secondary,
-        animationSpec = tween(durationMillis = 400),
+        animationSpec = tween(durationMillis = 300),
         label = "progressColor"
-    )
-
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(durationMillis = 100, easing = LinearEasing),
-        label = "progressAnim"
     )
 
     // Deterministic color from issuer string hash (stays consistent across recompositions)
@@ -90,11 +83,15 @@ fun TotpAccountCard(
         Color.hsl(hue, 0.55f, 0.45f)
     }
 
-    // Format "123456" → "123 456"
+    // Format "123456" → "123  456"
     val formattedCode = buildString {
-        append(uiState.currentCode.take(3))
-        append("  ")
-        append(uiState.currentCode.takeLast(3))
+        if (uiState.currentCode.length >= 6) {
+            append(uiState.currentCode.take(3))
+            append("  ")
+            append(uiState.currentCode.substring(3, 6))
+        } else {
+            append(uiState.currentCode)
+        }
     }
 
     // ── Delete Confirmation Dialog ───────────────────────────────
@@ -160,8 +157,9 @@ fun TotpAccountCard(
 
     Card(
         onClick = {
-            scope.launch { clipboard.setText(AnnotatedString(uiState.currentCode)) }
+            clipboard.setText(AnnotatedString(uiState.currentCode))
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            Toast.makeText(context, "Code copied to clipboard", Toast.LENGTH_SHORT).show()
         },
         modifier = modifier
             .fillMaxWidth()
@@ -227,16 +225,15 @@ fun TotpAccountCard(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(
-                        progress = { animatedProgress },
+                        progress = { progress },
                         modifier = Modifier.size(40.dp),
                         color = progressColor,
-                        trackColor = MaterialTheme.colorScheme.outline,
+                        trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                         strokeWidth = 4.dp
                     )
-                    // Seconds remaining inside the circle
-                    val secondsLeft = (progress * 30f).toInt().coerceIn(0, 30)
+                    // Seconds remaining inside the circle (30 down to 1)
                     Text(
-                        text = "$secondsLeft",
+                        text = "$secondsRemaining",
                         style = MaterialTheme.typography.labelSmall,
                         color = progressColor
                     )
